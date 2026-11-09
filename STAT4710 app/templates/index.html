@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STAT 4710 - Student Internship Analytics & AI Recommender</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <!-- Header Navigation -->
+    <header class="bg-indigo-700 text-white shadow-md">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold tracking-wide">STAT 4710 | Internship Analytics & AI Recommender</h1>
+            <nav class="space-x-4">
+                <button onclick="switchTab('dashboard')" id="tab-dashboard-btn" class="px-4 py-2 rounded-lg bg-indigo-800 font-medium">Dashboard</button>
+                <button onclick="switchTab('recommender')" id="tab-recommender-btn" class="px-4 py-2 rounded-lg hover:bg-indigo-600 font-medium">AI Recommendations</button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-6 py-8 flex-1 w-full">
+
+        <!-- Module 1: Dashboard -->
+        <section id="module-dashboard" class="space-y-8">
+            <!-- Metric Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <p class="text-xs font-semibold text-slate-400 uppercase">Total Records</p>
+                    <h3 id="stat-records" class="text-3xl font-extrabold text-indigo-600 mt-2">--</h3>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <p class="text-xs font-semibold text-slate-400 uppercase">Total Companies</p>
+                    <h3 id="stat-companies" class="text-3xl font-extrabold text-indigo-600 mt-2">--</h3>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <p class="text-xs font-semibold text-slate-400 uppercase">Majors Covered</p>
+                    <h3 id="stat-majors" class="text-3xl font-extrabold text-indigo-600 mt-2">--</h3>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <p class="text-xs font-semibold text-slate-400 uppercase">Courses Represented</p>
+                    <h3 id="stat-courses" class="text-3xl font-extrabold text-indigo-600 mt-2">--</h3>
+                </div>
+            </div>
+
+            <!-- Visual Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h4 class="text-lg font-bold text-slate-700 mb-4">Top 10 Employers / Companies</h4>
+                    <canvas id="companiesChart" class="w-full max-h-80"></canvas>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h4 class="text-lg font-bold text-slate-700 mb-4">Top 10 Technical Skills Demand</h4>
+                    <canvas id="skillsChart" class="w-full max-h-80"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Module 2: AI Chatbot & Recommendation -->
+        <section id="module-recommender" class="hidden space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                <h3 class="text-xl font-bold text-slate-800">Find Your Ideal Internship Match</h3>
+
+                <!-- Search Inputs -->
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-600 mb-1">Natural Language AI Query</label>
+                        <input type="text" id="chat-query" placeholder="e.g., I am a Risk Management major interested in AI and data analysis..."
+                               class="w-full border border-slate-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+
+                    <!-- Structured Filters -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-600 mb-1">Filter by Major</label>
+                            <input type="text" id="filter-major" placeholder="e.g., Applied AI, Statistics" class="w-full border border-slate-300 rounded-lg px-4 py-2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-600 mb-1">Filter by Technical Skill</label>
+                            <input type="text" id="filter-skill" placeholder="e.g., Python, SQL, Excel" class="w-full border border-slate-300 rounded-lg px-4 py-2">
+                        </div>
+                    </div>
+
+                    <button onclick="performSearch()" class="w-full bg-indigo-600 text-white font-semibold py-2.5 rounded-lg hover:bg-indigo-700 transition">Get Recommendations</button>
+                </div>
+            </div>
+
+            <!-- Recommendation Results Display -->
+            <div id="results-container" class="space-y-4">
+                <div class="text-center py-12 text-slate-400">Enter a query or filter criteria above to display recommendations.</div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // Navigation Switcher
+        function switchTab(tab) {
+            document.getElementById('module-dashboard').classList.toggle('hidden', tab !== 'dashboard');
+            document.getElementById('module-recommender').classList.toggle('hidden', tab !== 'recommender');
+            document.getElementById('tab-dashboard-btn').className = tab === 'dashboard' ? 'px-4 py-2 rounded-lg bg-indigo-800 font-medium' : 'px-4 py-2 rounded-lg hover:bg-indigo-600 font-medium';
+            document.getElementById('tab-recommender-btn').className = tab === 'recommender' ? 'px-4 py-2 rounded-lg bg-indigo-800 font-medium' : 'px-4 py-2 rounded-lg hover:bg-indigo-600 font-medium';
+        }
+
+        // Fetch Dashboard Data
+        async function loadDashboardData() {
+            const res = await fetch('/api/dashboard/stats');
+            const data = await res.json();
+
+            // Render stats cards
+            document.getElementById('stat-records').innerText = data.summary.total_records;
+            document.getElementById('stat-companies').innerText = data.summary.total_companies;
+            document.getElementById('stat-majors').innerText = data.summary.total_majors;
+            document.getElementById('stat-courses').innerText = data.summary.total_courses;
+
+            // Render Employers Chart
+            new Chart(document.getElementById('companiesChart'), {
+                type: 'bar',
+                data: {
+                    labels: data.charts.top_companies.map(c => c.name),
+                    datasets: [{ label: 'Intern Positions', data: data.charts.top_companies.map(c => c.count), backgroundColor: '#4F46E5' }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } } }
+            });
+
+            // Render Skills Chart
+            new Chart(document.getElementById('skillsChart'), {
+                type: 'bar',
+                data: {
+                    labels: data.charts.top_tech_skills.map(s => s.name),
+                    datasets: [{ label: 'Mentions', data: data.charts.top_tech_skills.map(s => s.count), backgroundColor: '#06B6D4' }]
+                },
+                options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } } }
+            });
+        }
+
+        // Perform RAG Recommendation Search
+        async function performSearch() {
+            const query = document.getElementById('chat-query').value;
+            const major = document.getElementById('filter-major').value;
+            const tech_skill = document.getElementById('filter-skill').value;
+            const container = document.getElementById('results-container');
+
+            container.innerHTML = `<div class="text-center py-8 text-indigo-600 font-semibold">Searching and computing match scores...</div>`;
+
+            const res = await fetch('/api/recommend', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, major, tech_skill })
+            });
+
+            const data = await res.json();
+
+            if (!data.results || data.results.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-slate-500">No matching internship records found.</div>`;
+                return;
+            }
+
+            container.innerHTML = data.results.map(r => `
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-3">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md uppercase">${r.major || 'General'} Major</span>
+                            <h4 class="text-lg font-bold text-slate-900 mt-1">${r['job title'] || 'Intern'} @ ${r.company}</h4>
+                            <p class="text-xs text-slate-500">${r.location ? r.location + ' • ' : ''}${r.year} ${r.semester}</p>
+                        </div>
+                        <span class="text-sm font-extrabold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
+                            ${r.match_score}% Match
+                        </span>
+                    </div>
+
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm text-slate-700">
+                        <strong class="text-slate-900">AI Recommendation Rationale:</strong> ${r.rationale}
+                    </div>
+
+                    <div class="text-xs text-slate-600 space-y-1">
+                        <p><strong>Technical Skills:</strong> ${r['technical skills'] || 'N/A'}</p>
+                        <p><strong>Tools & Software:</strong> ${r['tools and software'] || 'N/A'}</p>
+                        <p><strong>Advice for Interns:</strong> ${r['advice for future interns'] || 'N/A'}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        window.onload = loadDashboardData;
+    </script>
+</body>
+</html>
