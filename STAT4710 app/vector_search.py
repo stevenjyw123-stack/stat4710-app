@@ -1,3 +1,4 @@
+import re
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -54,19 +55,24 @@ class InternshipSearchEngine:
         similarities = cosine_similarity(query_vec, self.tfidf_matrix).flatten()
 
         max_sim = float(similarities.max()) if similarities.max() > 0 else 1.0
-        norm_sim = similarities / max_sim  # scale best semantic hit to [0, 1]
+        norm_sim = similarities / max_sim
 
+        skill_terms = [t.strip().lower() for t in re.split(r"[,;/]+", tech_skill or "") if t.strip()]
         combined_scores = np.zeros(len(self.df))
+
         for idx, row in self.df.iterrows():
-            score = norm_sim[idx] * 55.0
-            if major and major.lower() in str(row["major"]).lower():
-                score += 22.0
-            if tech_skill:
-                skill_blob = f"{row['technical skills']} {row['tools and software']}".lower()
-                if tech_skill.lower() in skill_blob:
-                    score += 22.0
-            if not major and not tech_skill:
-                score = 50.0 + norm_sim[idx] * 46.0
+            score = norm_sim[idx] * 52.0
+            major_hit = bool(major and major.lower() in str(row["major"]).lower())
+            if major_hit:
+                score += 24.0
+
+            skill_blob = f"{row['technical skills']} {row['tools and software']}".lower()
+            skill_hits = sum(1 for term in skill_terms if term in skill_blob)
+            if skill_terms:
+                score += 22.0 * (skill_hits / len(skill_terms))
+
+            if not query_str and not major and not skill_terms:
+                score = 65.0 + norm_sim[idx] * 30.0
             combined_scores[idx] = score
 
         top_indices = np.argsort(combined_scores)[::-1]
@@ -75,9 +81,9 @@ class InternshipSearchEngine:
             row_dict = self._sanitize_record(self.df.iloc[idx].to_dict())
             if major and major.lower() not in row_dict["major"].lower() and not query_str:
                 continue
-            if tech_skill:
+            if skill_terms:
                 skill_blob = f"{row_dict.get('technical skills', '')} {row_dict.get('tools and software', '')}".lower()
-                if tech_skill.lower() not in skill_blob and not query_str:
+                if not any(term in skill_blob for term in skill_terms) and not query_str:
                     continue
 
             pct = round(min(98.5, max(52.0, float(combined_scores[idx]))), 1)
@@ -92,18 +98,19 @@ class InternshipSearchEngine:
     def structured_filter(self, major: str = None, tech_skill: str = None, top_k: int = 6):
         """Structured filtering with percentage scoring."""
         scores = np.zeros(len(self.df))
+        skill_terms = [t.strip().lower() for t in re.split(r"[,;/]+", tech_skill or "") if t.strip()]
 
         for idx, row in self.df.iterrows():
             score = 0.0
             major_match = bool(major and major.lower() in str(row["major"]).lower())
             skill_blob = f"{row['technical skills']} {row['tools and software']}".lower()
-            skill_match = bool(tech_skill and tech_skill.lower() in skill_blob)
+            skill_match = bool(skill_terms and any(term in skill_blob for term in skill_terms))
 
             if major_match:
                 score += 48.0
             if skill_match:
                 score += 48.0
-            if not major and not tech_skill:
+            if not major and not skill_terms:
                 score += 75.0
             scores[idx] = score
 
@@ -117,9 +124,12 @@ class InternshipSearchEngine:
             row_dict["match_score"] = round(score, 1)
             m_flag = "Yes" if (major and major.lower() in row_dict["major"].lower()) else ("Any" if not major else "No")
             s_flag = "Yes" if (
-                tech_skill
-                and tech_skill.lower() in f"{row_dict.get('technical skills', '')} {row_dict.get('tools and software', '')}".lower()
-            ) else ("Any" if not tech_skill else "No")
+                skill_terms
+                and any(
+                    term in f"{row_dict.get('technical skills', '')} {row_dict.get('tools and software', '')}".lower()
+                    for term in skill_terms
+                )
+            ) else ("Any" if not skill_terms else "No")
             row_dict["rationale"] = f"Criteria match — Major: {m_flag}, Technical Skill/Tool: {s_flag}."
             results.append(row_dict)
         return results
