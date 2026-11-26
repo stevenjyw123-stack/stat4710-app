@@ -1,40 +1,82 @@
-from flask import Flask, render_template, request, jsonify
+import re
+from flask import Flask, jsonify, render_template, request
 from dashboard_service import DashboardService
 from vector_search import InternshipSearchEngine
 
 app = Flask(__name__)
 
-# Initialize services on backend startup
-dashboard_service = DashboardService('database.csv')
-search_engine = InternshipSearchEngine('database.csv')
+dashboard_service = DashboardService("database.csv")
+search_engine = InternshipSearchEngine("database.csv")
 
-@app.route('/')
+
+def _extract_course_codes(text: str) -> list[str]:
+    if not text:
+        return []
+    return sorted({c.replace(" ", "") for c in re.findall(r"\b(?:[A-Z]{2,5}\s*)?\d{4}\b", str(text).upper())})
+
+
+@app.route("/")
 def index():
-    return render_template('index.html')
+    return render_template("index.html")
 
-@app.route('/api/dashboard/stats', methods=['GET'])
+
+@app.route("/api/dashboard/stats", methods=["GET"])
 def get_dashboard_stats():
     """REST API endpoint to feed analytics dashboard."""
-    summary = dashboard_service.get_summary_stats()
-    charts = dashboard_service.get_chart_data()
-    return jsonify({"summary": summary, "charts": charts})
+    try:
+        summary = dashboard_service.get_summary_stats()
+        charts = dashboard_service.get_chart_data()
+        return jsonify({"summary": summary, "charts": charts})
+    except Exception as e:
+        return jsonify({"error": f"Failed to load dashboard stats: {str(e)}"}), 500
 
-@app.route('/api/recommend', methods=['POST'])
+
+@app.route("/api/recommend", methods=["POST"])
 def recommend_internships():
-    """REST API endpoint for NLP search and structured recommendation."""
-    data = request.get_json() or {}
-    query = data.get('query', '')
-    major = data.get('major', '')
-    tech_skill = data.get('tech_skill', '')
-    mode = data.get('mode', 'nlp')  # 'nlp' or 'filter'
+    """REST API endpoint for NLP search, structured filtering, and intern advice."""
+    try:
+        data = request.get_json(silent=True) or {}
+        query = (data.get("query") or "").strip()
+        major = (data.get("major") or "").strip()
+        tech_skill = (data.get("tech_skill") or "").strip()
+        mode = data.get("mode", "nlp")
+        top_k = max(4, min(6, int(data.get("top_k") or 6)))
 
-    if mode == 'filter' or (major or tech_skill):
-        results = search_engine.structured_filter(major=major, tech_skill=tech_skill)
-    else:
-        results = search_engine.search_nlp(query=query)
+        if mode == "filter" and not query:
+            results = search_engine.structured_filter(major=major, tech_skill=tech_skill, top_k=top_k)
+        else:
+            results = search_engine.search_nlp(query=query, major=major, tech_skill=tech_skill, top_k=top_k)
 
-    return jsonify({"count": len(results), "results": results})
+        all_courses = []
+        for r in results:
+            all_courses.extend(_extract_course_codes(r.get("courses mentioned", "")))
+        top_matched_courses = list(dict.fromkeys(all_courses))[:8]
 
-if __name__ == '__main__':
-    print("STAT 4710 Web App is running at http://127.0.0.1:5000")
-    app.run(debug=True, port=5000)
+        lead_advice = results[0]["advice_clean"] if results else (
+            "No exact match found with the current combination of filters. Try setting Major to 'All Majors' or clearing the skill filter."
+        )
+        echoed_question = query or f"Major: {major or 'All'} | Skill: {tech_skill or 'All'}"
+        assistant_summary = (
+            f"Found {len(results)} matching internship records from the 2025 dataset"
+            + (f" (courses often noted in these matches: {', '.join(top_matched_courses)})" if top_matched_courses else "")
+            + f". Key advice for interns: {lead_advice}"
+        )
+
+        return jsonify({
+            "question": echoed_question,
+            "assistant_reply": assistant_summary,
+            "count": len(results),
+            "results": results,
+        })
+    except Exception as e:
+        return jsonify({
+            "question": "",
+            "assistant_reply": f"Error processing recommendation request: {str(e)}",
+            "count": 0,
+            "results": [],
+        }), 500
+
+
+if __name__ == "__main__":
+    print("STAT 4710 Web App is running at http://127.0.0.1:5002")
+    app.run(debug=True, port=5002)
