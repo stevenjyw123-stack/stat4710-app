@@ -162,7 +162,10 @@
 
             <!-- Question Echo & Conversational Advice Box -->
             <div id="assistant-box" class="hidden bg-indigo-50 border border-indigo-200 p-5 rounded-xl space-y-2">
-                <div class="text-xs font-bold uppercase text-indigo-700">Your Question</div>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="text-xs font-bold uppercase text-indigo-700">Your Question</div>
+                    <div id="engine-badges" class="flex flex-wrap gap-1.5"></div>
+                </div>
                 <div id="echo-question" class="text-sm font-semibold text-slate-900"></div>
                 <div class="text-xs font-bold uppercase text-indigo-700 pt-2">Assistant Guidance</div>
                 <p id="assistant-reply" class="text-sm text-slate-800 leading-relaxed"></p>
@@ -354,10 +357,10 @@
 
             btn.disabled = true;
             btn.classList.add("opacity-60");
-            container.innerHTML = `<div class="md:col-span-2 text-center py-8 text-indigo-600 font-semibold">Searching internship records and compiling intern advice...</div>`;
+            container.innerHTML = `<div class="md:col-span-2 text-center py-8 text-indigo-600 font-semibold">Searching internship records and verifying with AI...</div>`;
 
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 12000);
+            const timer = setTimeout(() => controller.abort(), 18000);
 
             try {
                 const res = await fetch("/api/recommend", {
@@ -378,6 +381,19 @@
                 box.classList.remove("hidden");
                 document.getElementById("echo-question").innerText = data.question || "(General Internship Query)";
                 document.getElementById("assistant-reply").innerText = data.assistant_reply || "";
+
+                const badges = [];
+                if (data.dense_backend && data.dense_backend !== "none") {
+                    badges.push(`<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200">Dense + Lexical</span>`);
+                } else {
+                    badges.push(`<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">Hybrid Lexical</span>`);
+                }
+                if (data.llm_active) {
+                    badges.push(`<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">LLM Verified</span>`);
+                } else {
+                    badges.push(`<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">Local Mode</span>`);
+                }
+                document.getElementById("engine-badges").innerHTML = badges.join("");
 
                 if (!res.ok || !data.results || data.results.length === 0) {
                     container.innerHTML = `

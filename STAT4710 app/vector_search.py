@@ -1,8 +1,19 @@
+import os
 import re
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = None
 
 
 class InternshipSearchEngine:
@@ -10,14 +21,17 @@ class InternshipSearchEngine:
         self.df = pd.read_csv(data_path).fillna("")
         self.df["combined_text"] = self.df.apply(
             lambda r: (
-                f"{r['major']} {r['job title']} {r['company']} {r['job description']} "
-                f"{r['job duties']} {r['pre-internship preparation']} {r['technical skills']} "
-                f"{r['soft skills']} {r['courses mentioned']} {r['what have I learned']} "
-                f"{r['advice for future interns']} {r['tools and software']}"
+                f"Major: {r['major']}. Role: {r['job title']} at {r['company']}. "
+                f"Description: {r['job description']} {r['job duties']}. "
+                f"Preparation: {r['pre-internship preparation']}. "
+                f"Technical skills: {r['technical skills']}. Tools: {r['tools and software']}. "
+                f"Soft skills: {r['soft skills']}. Courses: {r['courses mentioned']}. "
+                f"Learned: {r['what have I learned']}. Advice: {r['advice for future interns']}."
             ),
             axis=1,
         )
-        # Word + char_wb n-grams help capture technical terms & course codes while keeping offline speed
+
+        # 1. Lexical sparse vectorizers (always available offline)
         self.word_vectorizer = TfidfVectorizer(
             stop_words="english",
             ngram_range=(1, 2),
@@ -31,6 +45,74 @@ class InternshipSearchEngine:
         )
         self.word_matrix = self.word_vectorizer.fit_transform(self.df["combined_text"])
         self.char_matrix = self.char_vectorizer.fit_transform(self.df["combined_text"])
+
+        # 2. Dense embedding setup (OpenAI API -> local SentenceTransformer -> None)
+        self.dense_backend = "none"
+        self.dense_matrix = None
+        self.openai_client = None
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small").strip()
+        self.local_st_model = None
+
+        self._init_dense_embeddings()
+
+    def _init_dense_embeddings(self):
+        texts = self.df["combined_text"].tolist()
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+
+        # Priority 1: OpenAI Dense Embeddings
+        if api_key and OpenAI is not None:
+            try:
+                kwargs = {"api_key": api_key}
+                if base_url:
+                    kwargs["base_url"] = base_url
+                self.openai_client = OpenAI(**kwargs)
+                resp = self.openai_client.embeddings.create(
+                    model=self.embedding_model,
+                    input=texts,
+                )
+                vecs = np.array([item.embedding for item in resp.data], dtype=np.float32)
+                norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+                self.dense_matrix = vecs / np.maximum(norms, 1e-12)
+                self.dense_backend = f"openai:{self.embedding_model}"
+                return
+            except Exception:
+                self.openai_client = None
+                self.dense_matrix = None
+
+        # Priority 2: Local SentenceTransformer Dense Embeddings (if installed)
+        if SentenceTransformer is not None:
+            try:
+                local_name = os.getenv("LOCAL_EMBEDDING_MODEL", "all-MiniLM-L6-v2").strip()
+                self.local_st_model = SentenceTransformer(local_name)
+                vecs = self.local_st_model.encode(texts, normalize_embeddings=True)
+                self.dense_matrix = np.array(vecs, dtype=np.float32)
+                self.dense_backend = f"local:{local_name}"
+                return
+            except Exception:
+                self.local_st_model = None
+                self.dense_matrix = None
+
+        self.dense_backend = "none"
+
+    def _encode_query_dense(self, query_str: str):
+        if self.dense_matrix is None or not query_str:
+            return None
+        try:
+            if self.openai_client is not None:
+                resp = self.openai_client.embeddings.create(
+                    model=self.embedding_model,
+                    input=[query_str],
+                )
+                q_vec = np.array(resp.data[0].embedding, dtype=np.float32)
+                q_vec = q_vec / max(float(np.linalg.norm(q_vec)), 1e-12)
+                return q_vec
+            if self.local_st_model is not None:
+                q_vec = self.local_st_model.encode([query_str], normalize_embeddings=True)[0]
+                return np.array(q_vec, dtype=np.float32)
+        except Exception:
+            return None
+        return None
 
     @staticmethod
     def _term_in_text(term: str, text: str) -> bool:
@@ -68,23 +150,36 @@ class InternshipSearchEngine:
         cleaned["advice_clean"] = InternshipSearchEngine._clean_advice(cleaned)
         return cleaned
 
-    def _compute_hybrid_similarity(self, query_str: str) -> np.ndarray:
+    def _compute_hybrid_similarity(self, query_str: str) -> tuple[np.ndarray, bool]:
         w_vec = self.word_vectorizer.transform([query_str])
         c_vec = self.char_vectorizer.transform([query_str])
         w_sim = cosine_similarity(w_vec, self.word_matrix).flatten()
         c_sim = cosine_similarity(c_vec, self.char_matrix).flatten()
-        return 0.75 * w_sim + 0.25 * c_sim
+        lexical_sim = 0.75 * w_sim + 0.25 * c_sim
 
-    def search_nlp(self, query: str, major: str = "", tech_skill: str = "", top_k: int = 6):
-        """Strict filtering + calibrated percentage match scoring without artificial floors."""
+        q_dense = self._encode_query_dense(query_str)
+        if q_dense is not None and self.dense_matrix is not None:
+            raw_dense = np.dot(self.dense_matrix, q_dense)
+            # Rescale cosine similarity from typical [0.15, 0.85] text range to [0, 1]
+            dense_sim = np.clip((raw_dense - 0.15) / 0.70, 0.0, 1.0)
+            return 0.65 * dense_sim + 0.35 * lexical_sim, True
+
+        return lexical_sim, False
+
+    def search_nlp(self, query: str, major: str = "", tech_skill: str = "", top_k: int = 6, candidate_limit: int = 12):
+        """Retrieve candidates with strict filters + Dense/Lexical hybrid similarity."""
         query_str = (query or "").strip()
         major_str = (major or "").strip()
         skill_terms = [t.strip().lower() for t in re.split(r"[,;/]+", tech_skill or "") if t.strip()]
 
         if not query_str and not major_str and not skill_terms:
-            return self.structured_filter(major="", tech_skill="", top_k=top_k)
+            return self.structured_filter(major="", tech_skill="", top_k=candidate_limit)
 
-        sim_scores = self._compute_hybrid_similarity(query_str) if query_str else np.zeros(len(self.df))
+        sim_scores, used_dense = (
+            self._compute_hybrid_similarity(query_str)
+            if query_str
+            else (np.zeros(len(self.df)), False)
+        )
         max_sim = float(sim_scores.max()) if len(sim_scores) > 0 and sim_scores.max() > 0 else 0.0
 
         scored_items = []
@@ -101,8 +196,8 @@ class InternshipSearchEngine:
             raw_sim = float(sim_scores[idx]) if query_str else 0.0
             rel_sim = (raw_sim / max_sim) if (query_str and max_sim > 0) else 0.0
 
-            # Reject completely irrelevant queries that have near-zero similarity and no filter match
-            if query_str and not major_str and not skill_terms and raw_sim < 0.03:
+            min_threshold = 0.08 if used_dense else 0.03
+            if query_str and not major_str and not skill_terms and raw_sim < min_threshold:
                 continue
 
             score = 0.0
@@ -114,7 +209,6 @@ class InternshipSearchEngine:
                 ratio = len(matched_skills) / len(skill_terms)
                 score += (20.0 if not query_str else 17.0) * ratio
 
-            # Small bonus for rich reflection text when tie-breaking
             if score > 0 and str(row.get("advice for future interns", "")).strip():
                 score = min(99.0, score + 1.5)
 
@@ -126,7 +220,7 @@ class InternshipSearchEngine:
         scored_items.sort(key=lambda x: x[0], reverse=True)
 
         results = []
-        for score, idx, matched_skills in scored_items[:top_k]:
+        for score, idx, matched_skills in scored_items[:candidate_limit]:
             row_dict = self._sanitize_record(self.df.iloc[idx].to_dict())
             row_dict["match_score"] = round(min(99.0, max(1.0, score)), 1)
             row_dict["rationale"] = self._generate_rationale(
@@ -134,6 +228,7 @@ class InternshipSearchEngine:
                 major=major_str,
                 matched_skills=matched_skills,
                 row=row_dict,
+                used_dense=used_dense,
             )
             results.append(row_dict)
 
@@ -162,7 +257,6 @@ class InternshipSearchEngine:
             elif skill_terms:
                 score = 68.0 + 22.0 * (len(matched_skills) / len(skill_terms))
             else:
-                # Unfiltered browse mode: reflects general dataset match
                 score = 60.0
 
             scored_items.append((score, idx, matched_skills))
@@ -180,7 +274,14 @@ class InternshipSearchEngine:
 
         return results
 
-    def _generate_rationale(self, query: str, major: str, matched_skills: list[str], row: dict) -> str:
+    def _generate_rationale(
+        self,
+        query: str,
+        major: str,
+        matched_skills: list[str],
+        row: dict,
+        used_dense: bool = False,
+    ) -> str:
         skills = row.get("technical skills", "").strip()
         courses = row.get("courses mentioned", "").strip()
         company = row.get("company", "Host Organization")
@@ -192,7 +293,7 @@ class InternshipSearchEngine:
         if matched_skills:
             reasons.append(f"skills match {', '.join(matched_skills)}")
         if query:
-            reasons.append("semantic match to query")
+            reasons.append("dense + lexical semantic match" if used_dense else "semantic match to query")
 
         prefix = f"Relevant {title} at {company}"
         if reasons:
