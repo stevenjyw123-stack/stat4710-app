@@ -41,9 +41,9 @@
                     <p id="stat-companies-sub" class="text-xs text-slate-500 mt-1">--</p>
                 </div>
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <p class="text-xs font-semibold text-slate-400 uppercase">Majors Covered</p>
+                    <p class="text-xs font-semibold text-slate-400 uppercase">Base Majors Covered</p>
                     <h3 id="stat-majors" class="text-3xl font-extrabold text-indigo-600 mt-2">--</h3>
-                    <p class="text-xs text-slate-500 mt-1">Spelled out below</p>
+                    <p class="text-xs text-slate-500 mt-1">Normalized disciplines below</p>
                 </div>
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                     <p class="text-xs font-semibold text-slate-400 uppercase">Internship Course Codes</p>
@@ -52,13 +52,13 @@
                 </div>
             </div>
 
-            <!-- Spelled-out Majors Banner -->
+            <!-- Spelled-out Normalized Majors Banner -->
             <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                <h4 class="text-sm font-bold text-slate-700 mb-3">Majors Represented in 2025 Dataset</h4>
+                <h4 class="text-sm font-bold text-slate-700 mb-3">Normalized Majors Represented in 2025 Dataset (Multi-Major Counts Included)</h4>
                 <div id="majors-badges" class="flex flex-wrap gap-2"></div>
             </div>
 
-            <!-- Visual Charts Grid (4 Charts) -->
+            <!-- Core Visual Charts Grid -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                     <h4 class="text-base font-bold text-slate-700 mb-4">Top 10 Technical Skills & Tools</h4>
@@ -75,6 +75,40 @@
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                     <h4 class="text-base font-bold text-slate-700 mb-4">Top 10 Host Organizations</h4>
                     <canvas id="companiesChart" class="w-full max-h-80"></canvas>
+                </div>
+            </div>
+
+            <!-- Additional Insights: Semester x Course, Focus Areas, 3-Variable Grouped Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h4 class="text-base font-bold text-slate-700 mb-4">Internships by Semester & Course Code</h4>
+                    <canvas id="semesterCourseChart" class="w-full max-h-80"></canvas>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h4 class="text-base font-bold text-slate-700 mb-4">Top Focus Areas & Job Functions</h4>
+                    <canvas id="focusChart" class="w-full max-h-80"></canvas>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h4 class="text-base font-bold text-slate-700 mb-1">3-Variable View: Top 5 Companies × Top Technical Skills</h4>
+                    <p class="text-xs text-slate-400 mb-3">Organization × Technical Skill × Mentions</p>
+                    <canvas id="companySkill3VarChart" class="w-full max-h-80"></canvas>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h4 class="text-base font-bold text-slate-700 mb-1">3-Variable View: Top 5 Companies × Base Majors</h4>
+                    <p class="text-xs text-slate-400 mb-3">Organization × Major × Internship Count</p>
+                    <canvas id="companyMajor3VarChart" class="w-full max-h-80"></canvas>
+                </div>
+            </div>
+
+            <!-- Fancy Charts: Radar Chart & Treemap-Style Share Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h4 class="text-base font-bold text-slate-700 mb-4">Soft Skills Radar (% of 2025 Internships)</h4>
+                    <canvas id="softSkillRadarChart" class="w-full max-h-80"></canvas>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h4 class="text-base font-bold text-slate-700 mb-4">Discipline Share Treemap Blocks</h4>
+                    <div id="majorTreemapGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div>
                 </div>
             </div>
         </section>
@@ -103,6 +137,7 @@
                                 <option value="Statistics">Statistics</option>
                                 <option value="Applied AI">Applied AI</option>
                                 <option value="Decision Analytics">Decision Analytics</option>
+                                <option value="Data Analytics">Data Analytics</option>
                             </select>
                         </div>
                         <div>
@@ -143,6 +178,8 @@
     </main>
 
     <script>
+        const PALETTE = ["#4F46E5", "#06B6D4", "#0D9488", "#F59E0B", "#EC4899", "#6366F1"];
+
         function switchTab(tab) {
             const isDash = tab === "dashboard";
             document.getElementById("module-dashboard").classList.toggle("hidden", !isDash);
@@ -164,7 +201,7 @@
             new Chart(document.getElementById(canvasId), {
                 type: "bar",
                 data: {
-                    labels: items.map(x => shortLabel(x.name, horizontal ? 30 : 18)),
+                    labels: items.map(x => shortLabel(x.name, horizontal ? 28 : 16)),
                     datasets: [{
                         label: "Count",
                         data: items.map(x => x.count),
@@ -184,6 +221,86 @@
                     }
                 }
             });
+        }
+
+        function renderGroupedBarChart(canvasId, groupData, stacked = false) {
+            const labels = groupData.labels || [];
+            const datasets = (groupData.datasets || []).map((ds, idx) => ({
+                label: ds.label,
+                data: ds.data,
+                backgroundColor: PALETTE[idx % PALETTE.length]
+            }));
+
+            new Chart(document.getElementById(canvasId), {
+                type: "bar",
+                data: {
+                    labels: labels.map(l => shortLabel(l, 22)),
+                    datasets
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { stacked },
+                        y: { stacked, beginAtZero: true }
+                    },
+                    plugins: {
+                        legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                title: (ctx) => labels[ctx[0].dataIndex] || ""
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderRadarChart(canvasId, radarData) {
+            new Chart(document.getElementById(canvasId), {
+                type: "radar",
+                data: {
+                    labels: radarData.labels || [],
+                    datasets: [{
+                        label: "% of Internships",
+                        data: radarData.values || [],
+                        backgroundColor: "rgba(79, 70, 229, 0.2)",
+                        borderColor: "#4F46E5",
+                        pointBackgroundColor: "#4F46E5"
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        r: { beginAtZero: true }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        function renderMajorTreemap(containerId, items) {
+            const el = document.getElementById(containerId);
+            if (!items || items.length === 0) {
+                el.innerHTML = `<p class="text-xs text-slate-400">No major data available.</p>`;
+                return;
+            }
+            const maxShare = Math.max(...items.map(i => i.share), 1);
+            el.innerHTML = items.map((item, idx) => {
+                const intensity = Math.max(0.25, Math.min(1, item.share / maxShare));
+                const bg = PALETTE[idx % PALETTE.length];
+                return `
+                    <div class="p-3.5 rounded-lg border border-slate-200 flex flex-col justify-between"
+                         style="background-color: ${bg}18; border-left: 4px solid ${bg}; opacity: ${0.65 + 0.35 * intensity};">
+                        <div class="text-xs font-bold text-slate-800 leading-snug">${item.name}</div>
+                        <div class="mt-2 flex items-baseline justify-between">
+                            <span class="text-lg font-extrabold text-slate-900">${item.count}</span>
+                            <span class="text-xs font-semibold text-indigo-700">${item.share}%</span>
+                        </div>
+                    </div>
+                `;
+            }).join("");
         }
 
         async function loadDashboardData() {
@@ -207,6 +324,14 @@
                 renderBarChart("coursesChart", data.charts.top_courses || [], "#4F46E5", false);
                 renderBarChart("softSkillsChart", data.charts.top_soft_skills || [], "#6366F1", true);
                 renderBarChart("companiesChart", data.charts.top_companies || [], "#0D9488", true);
+
+                renderGroupedBarChart("semesterCourseChart", data.charts.semester_course_chart || {}, true);
+                renderBarChart("focusChart", data.charts.focus_areas || [], "#F59E0B", true);
+                renderGroupedBarChart("companySkill3VarChart", data.charts.company_skill_3var || {}, false);
+                renderGroupedBarChart("companyMajor3VarChart", data.charts.company_major_3var || {}, false);
+
+                renderRadarChart("softSkillRadarChart", data.charts.radar_chart || {});
+                renderMajorTreemap("majorTreemapGrid", data.charts.treemap_majors || []);
             } catch (err) {
                 console.error("Dashboard load error:", err);
             }
@@ -259,7 +384,7 @@
                         <div class="md:col-span-2 text-center py-8 space-y-3 text-slate-600">
                             <p>No matching internship records found for this filter combination.</p>
                             <button onclick="resetFiltersAndSearch()" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700">
-                                Show All / Broaden Search
+                                Reset & Show All
                             </button>
                         </div>`;
                     return;

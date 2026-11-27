@@ -1,12 +1,16 @@
+import os
 import re
 from flask import Flask, jsonify, render_template, request
 from dashboard_service import DashboardService
 from vector_search import InternshipSearchEngine
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(BASE_DIR, "database.csv")
 
-dashboard_service = DashboardService("database.csv")
-search_engine = InternshipSearchEngine("database.csv")
+app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"))
+
+dashboard_service = DashboardService(DATA_PATH)
+search_engine = InternshipSearchEngine(DATA_PATH)
 
 
 def _extract_course_codes(text: str) -> list[str]:
@@ -40,7 +44,7 @@ def recommend_internships():
         major = (data.get("major") or "").strip()
         tech_skill = (data.get("tech_skill") or "").strip()
         mode = data.get("mode", "nlp")
-        top_k = max(4, min(6, int(data.get("top_k") or 6)))
+        top_k = max(1, min(6, int(data.get("top_k") or 6)))
 
         if mode == "filter" and not query:
             results = search_engine.structured_filter(major=major, tech_skill=tech_skill, top_k=top_k)
@@ -53,7 +57,7 @@ def recommend_internships():
         top_matched_courses = list(dict.fromkeys(all_courses))[:8]
 
         lead_advice = results[0]["advice_clean"] if results else (
-            "No exact match found with the current combination of filters. Try setting Major to 'All Majors' or clearing the skill filter."
+            "No matching records found for this combination. Try broadening the query, choosing 'All Majors', or clearing the skill filter."
         )
         echoed_question = query or f"Major: {major or 'All'} | Skill: {tech_skill or 'All'}"
         assistant_summary = (
